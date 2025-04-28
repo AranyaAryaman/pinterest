@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Profile - Pinterest Clone{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="text-center">Your Profile</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('update_profile') }}">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" value="{{ user_data[0] }}" disabled>
+                        <small class="text-muted">Username cannot be changed</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" value="{{ user_data[1] }}" disabled>
+                        <small class="text-muted">Email cannot be changed</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="full_name" class="form-label">Full Name</label>
+                        <input type="text" class="form-control" id="full_name" name="full_name" value="{{ user_data[2] or '' }}">
+                    </div>
+                    
+                    <h4 class="mt-4">Change Password</h4>
+                    <div class="mb-3">
+                        <label for="current_password" class="form-label">Current Password</label>
+                        <input type="password" class="form-control" id="current_password" name="current_password">
+                    </div>
+                    <div class="mb-3">
+                        <label for="new_password" class="form-label">New Password</label>
+                        <input type="password" class="form-control" id="new_password" name="new_password">
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Update Profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h3 class="text-center">Your Friends</h3>
+            </div>
+            <div class="card-body">
+                {% if friends %}
+                    <div class="list-group">
+                        {% for friend in friends %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="mb-1">{{ friend[1] or friend[0] }}</h5>
+                                        <small class="text-muted">@{{ friend[0] }}</small>
+                                    </div>
+                                    <div>
+                                        {% if friend[2] == 'pending' %}
+                                            {% if friend[3] %}
+                                                <span class="badge bg-warning">Request Sent</span>
+                                            {% else %}
+                                                <div>
+                                                    <form method="POST" action="{{ url_for('respond_friend_request', user_id=friend[0], action='accept') }}" class="d-inline">
+                                                        <button type="submit" class="btn btn-success btn-sm">Accept</button>
+                                                    </form>
+                                                    <form method="POST" action="{{ url_for('respond_friend_request', user_id=friend[0], action='reject') }}" class="d-inline">
+                                                        <button type="submit" class="btn btn-danger btn-sm">Reject</button>
+                                                    </form>
+                                                </div>
+                                            {% endif %}
+                                        {% elif friend[2] == 'accepted' %}
+                                            <span class="badge bg-success">Friends</span>
+                                        {% elif friend[2] == 'rejected' %}
+                                            <span class="badge bg-danger">Rejected</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-center">You don't have any friends yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

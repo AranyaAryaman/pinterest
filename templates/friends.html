@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Friends - Pinterest{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <!-- Search Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="text-center">Find Friends</h3>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('friends') }}" class="mb-4">
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="search" placeholder="Search by username or name..." value="{{ search_query }}">
+                        <button class="btn btn-primary" type="submit">Search</button>
+                    </div>
+                </form>
+
+                {% if users %}
+                    <div class="list-group">
+                        {% for user in users %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="mb-1">{{ user[2] or user[1] }}</h5>
+                                        <small class="text-muted">@{{ user[1] }}</small>
+                                    </div>
+                                    <div>
+                                        {% if user[3] == 'requested' %}
+                                            <button class="btn btn-secondary btn-sm" disabled>
+                                                <i class="fas fa-user-plus"></i> Request Sent
+                                            </button>
+                                        {% elif user[3] == 'pending' %}
+                                            <button class="btn btn-warning btn-sm" disabled>
+                                                <i class="fas fa-clock"></i> Pending
+                                            </button>
+                                        {% else %}
+                                            <form method="POST" action="{{ url_for('add_friend', user_id=user[0]) }}">
+                                                <button type="submit" class="btn btn-primary btn-sm">
+                                                    <i class="fas fa-user-plus"></i> Add Friend
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-center">No users found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Pending Requests Section -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="text-center">Friend Requests</h3>
+            </div>
+            <div class="card-body">
+                {% if pending_requests %}
+                    <div class="list-group">
+                        {% for request in pending_requests %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="mb-1">{{ request[2] or request[1] }}</h5>
+                                        <small class="text-muted">@{{ request[1] }}</small>
+                                    </div>
+                                    <div>
+                                        <form method="POST" action="{{ url_for('respond_friend_request', user_id=request[0], action='accept') }}" class="d-inline">
+                                            <button type="submit" class="btn btn-success btn-sm">
+                                                <i class="fas fa-check"></i> Accept
+                                            </button>
+                                        </form>
+                                        <form method="POST" action="{{ url_for('respond_friend_request', user_id=request[0], action='reject') }}" class="d-inline">
+                                            <button type="submit" class="btn btn-danger btn-sm">
+                                                <i class="fas fa-times"></i> Reject
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-center">No pending friend requests.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

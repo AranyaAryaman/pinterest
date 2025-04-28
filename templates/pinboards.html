@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}My Pinboards - Pinterest{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>My Pinboards</h2>
+            <a href="{{ url_for('create_pinboard') }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Create New Board
+            </a>
+        </div>
+
+        {% if boards %}
+            <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+                {% for board in boards %}
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">{{ board[1] }}</h5>
+                                <p class="card-text">
+                                    <small class="text-muted">
+                                        Created on {{ board[2].strftime('%B %d, %Y') }}
+                                    </small>
+                                </p>
+                                <a href="{{ url_for('pinboard', board_id=board[0]) }}" class="btn btn-outline-primary">
+                                    View Board
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center">
+                <p class="lead">You haven't created any pinboards yet.</p>
+                <a href="{{ url_for('create_pinboard') }}" class="btn btn-primary">
+                    Create Your First Board
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %} 
