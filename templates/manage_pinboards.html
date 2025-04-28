@@ -11,6 +11,14 @@
         </a>
     </div>
 
+    <form method="GET" action="{{ url_for('manage_pinboards') }}" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="search" class="form-control" placeholder="Search pinboards..." value="{{ search_query or '' }}">
+            <button class="btn btn-outline-secondary" type="submit">Search</button>
+        </div>
+    </form>
+    
+
     {% if boards %}
     <div class="row row-cols-1 row-cols-md-3 g-4">
         {% for board in boards %}

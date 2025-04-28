@@ -809,26 +809,34 @@ def manage_pinboards():
         flash('Please login to manage your pinboards.', 'error')
         return redirect(url_for('login'))
     
+    search_query = request.args.get('search', '')
+
     conn = get_db_connection()
     cur = conn.cursor()
     
     try:
-        # Get user's pinboards
-        cur.execute('''
-            SELECT board_id, name, created_at
-            FROM Pinboards
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (session['user_id'],))
+        if search_query:
+            cur.execute('''
+                SELECT board_id, name, created_at
+                FROM Pinboards
+                WHERE user_id = %s AND name ILIKE %s
+                ORDER BY created_at DESC
+            ''', (session['user_id'], f'%{search_query}%'))
+        else:
+            cur.execute('''
+                SELECT board_id, name, created_at
+                FROM Pinboards
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+            ''', (session['user_id'],))
         
-        # Convert tuples to dictionaries with named fields
         boards = [{
             'board_id': row[0],
             'name': row[1],
             'created_at': row[2]
         } for row in cur.fetchall()]
         
-        return render_template('manage_pinboards.html', boards=boards)
+        return render_template('manage_pinboards.html', boards=boards, search_query=search_query)
         
     finally:
         cur.close()
@@ -862,17 +870,27 @@ def manage_streams():
         flash('Please login to manage follow streams.', 'error')
         return redirect(url_for('login'))
     
+    search_query = request.args.get('search', '')
+
     conn = get_db_connection()
     cur = conn.cursor()
     
     try:
-        # Get user's follow streams
-        cur.execute('''
-            SELECT stream_id, name, created_at
-            FROM FollowStreams
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-        ''', (session['user_id'],))
+        if search_query:
+            cur.execute('''
+                SELECT stream_id, name, created_at
+                FROM FollowStreams
+                WHERE user_id = %s AND name ILIKE %s
+                ORDER BY created_at DESC
+            ''', (session['user_id'], f'%{search_query}%'))
+        else:
+            cur.execute('''
+                SELECT stream_id, name, created_at
+                FROM FollowStreams
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+            ''', (session['user_id'],))
+        
         streams = [{'stream_id': row[0], 'name': row[1], 'created_at': row[2]} for row in cur.fetchall()]
         
         # Get friends and their boards
@@ -894,7 +912,7 @@ def manage_streams():
                 friends[user_id] = {'username': username, 'boards': []}
             friends[user_id]['boards'].append({'board_id': board_id, 'name': board_name})
         
-        return render_template('manage_streams.html', streams=streams, friends=friends.values())
+        return render_template('manage_streams.html', streams=streams, friends=friends.values(), search_query=search_query)
         
     finally:
         cur.close()

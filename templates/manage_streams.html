@@ -11,6 +11,14 @@
         </button>
     </div>
 
+    <form method="GET" action="{{ url_for('manage_streams') }}" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="search" class="form-control" placeholder="Search streams..." value="{{ search_query or '' }}">
+            <button class="btn btn-outline-secondary" type="submit">Search</button>
+        </div>
+    </form>
+     
+    
     {% if streams %}
     <div class="row">
         {% for stream in streams %}
