@@ -6,9 +6,20 @@ import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import requests
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate a random secret key
+
+# Login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Configure upload folder
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
@@ -32,51 +43,159 @@ def get_db_connection():
 @app.route('/')
 def home():
     if 'user_id' not in session:
-        return render_template('home.html')
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
+        return render_template('landing.html')
     
     try:
-        # Get user's boards for the dropdown
-        cur.execute('''
-            SELECT board_id, name
-            FROM Pinboards
-            WHERE user_id = %s
-            ORDER BY name
-        ''', (session['user_id'],))
-        boards = [{'board_id': row[0], 'name': row[1]} for row in cur.fetchall()]
-        
-        # Get pins from friends' boards
-        cur.execute('''
-            SELECT pi.pin_id, p.picture_id, p.source_page_url, p.tags,
-                   u.username, pb.name as board_name, pi.pinned_at
-            FROM Pins pi
-            JOIN Pictures p ON pi.picture_id = p.picture_id
-            JOIN Users u ON pi.user_id = u.user_id
-            JOIN Pinboards pb ON pi.board_id = pb.board_id
-            JOIN Friendships f ON (f.requester_id = u.user_id OR f.addressee_id = u.user_id)
-            WHERE (f.requester_id = %s OR f.addressee_id = %s)
-            AND f.status = 'accepted'
-            AND u.user_id != %s
-            ORDER BY pi.pinned_at DESC
-        ''', (session['user_id'], session['user_id'], session['user_id']))
-        
-        pins = [{
-            'pin_id': row[0],
-            'picture_id': row[1],
-            'source_page_url': row[2],
-            'tags': row[3],
-            'username': row[4],
-            'board_name': row[5],
-            'pinned_at': row[6]
-        } for row in cur.fetchall()]
-        
-        return render_template('home.html', pins=pins, boards=boards)
-        
-    finally:
-        cur.close()
-        conn.close()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get user's boards
+                cur.execute("""
+                    SELECT board_id, name FROM Pinboards 
+                    WHERE user_id = %s
+                    ORDER BY name
+                """, (session['user_id'],))
+                boards = [{'board_id': row[0], 'name': row[1]} for row in cur.fetchall()]
+                
+                # Get friends' pins
+                cur.execute("""
+                    SELECT 
+                        p.pin_id,
+                        p.picture_id,
+                        p.pinned_at,
+                        pic.tags,
+                        u.username,
+                        pb.name as board_name,
+                        pic.storage_path
+                    FROM Pins p
+                    JOIN Users u ON p.user_id = u.user_id
+                    JOIN Pinboards pb ON p.board_id = pb.board_id
+                    JOIN Pictures pic ON p.picture_id = pic.picture_id
+                    ORDER BY p.pinned_at DESC
+                """, (session['user_id'], session['user_id'], session['user_id']))
+                
+                pins = []
+                for row in cur.fetchall():
+                    pin = {
+                        'pin_id': row[0],
+                        'picture_id': row[1],
+                        'pinned_at': row[2],
+                        'tags': row[3] if row[3] else [],
+                        'username': row[4],
+                        'board_name': row[5],
+                        'storage_path': row[6]
+                    }
+                    pins.append(pin)
+                
+                return render_template('home.html', boards=boards, pins=pins)
+    except Exception as e:
+        print(f"Error in home route: {e}")
+        flash('An error occurred while loading the home page.', 'danger')
+        return render_template('home.html', boards=[], pins=[])
+
+@app.route('/pin/<pin_id>')
+@login_required
+def view_pin(pin_id):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get user's boards
+                cur.execute("""
+                    SELECT board_id, name FROM Pinboards 
+                    WHERE user_id = %s
+                    ORDER BY name
+                """, (session['user_id'],))
+                boards = [{'board_id': row[0], 'name': row[1]} for row in cur.fetchall()]
+                
+                # Get pin details and find original pin
+                cur.execute("""
+                    WITH RECURSIVE pin_chain AS (
+                        -- Start with the current pin
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id, p.pinned_at,
+                               u.username, pb.name as board_name, pic.tags, pic.storage_path,
+                               p.user_id
+                        FROM Pins p
+                        JOIN Users u ON p.user_id = u.user_id
+                        JOIN Pinboards pb ON p.board_id = pb.board_id
+                        JOIN Pictures pic ON p.picture_id = pic.picture_id
+                        WHERE p.pin_id = %s
+                        
+                        UNION ALL
+                        
+                        -- Recursively find parent pins
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id, p.pinned_at,
+                               u.username, pb.name as board_name, pic.tags, pic.storage_path,
+                               p.user_id
+                        FROM Pins p
+                        JOIN pin_chain pc ON p.pin_id = pc.parent_pin_id
+                        JOIN Users u ON p.user_id = u.user_id
+                        JOIN Pinboards pb ON p.board_id = pb.board_id
+                        JOIN Pictures pic ON p.picture_id = pic.picture_id
+                    )
+                    -- Get current pin and original pin details
+                    SELECT 
+                        pc.pin_id, pc.picture_id, pc.pinned_at, pc.tags,
+                        pc.username, pc.board_name, pc.storage_path,
+                        op.pin_id as original_pin_id,
+                        op.username as original_username,
+                        op.board_name as original_board_name,
+                        op.pinned_at as original_pinned_at,
+                        COALESCE((SELECT COUNT(*) FROM Likes l WHERE l.picture_id = pc.picture_id), 0) as like_count,
+                        COALESCE((SELECT true FROM Likes l WHERE l.user_id = %s AND l.picture_id = pc.picture_id), false) as is_liked,
+                        pc.user_id = %s as is_owner
+                    FROM pin_chain pc
+                    LEFT JOIN pin_chain op ON op.parent_pin_id IS NULL
+                    WHERE pc.pin_id = %s
+                """, (pin_id, session['user_id'], session['user_id'], pin_id))
+                
+                pin_data = cur.fetchone()
+                if not pin_data:
+                    flash('Pin not found.', 'danger')
+                    return redirect(url_for('home'))
+                
+                # Get comments
+                cur.execute("""
+                    SELECT c.content, c.commented_at, u.username
+                    FROM Comments c
+                    JOIN Users u ON c.user_id = u.user_id
+                    WHERE c.pin_id = %s
+                    ORDER BY c.commented_at DESC
+                """, (pin_id,))
+                comments = []
+                for row in cur.fetchall():
+                    comments.append({
+                        'content': row[0],
+                        'commented_at': row[1],
+                        'username': row[2]
+                    })
+                
+                pin = {
+                    'pin_id': pin_data[0],
+                    'picture_id': pin_data[1],
+                    'pinned_at': pin_data[2],
+                    'tags': pin_data[3] if pin_data[3] else [],
+                    'username': pin_data[4],
+                    'board_name': pin_data[5],
+                    'storage_path': pin_data[6],
+                    'original_pin': {
+                        'pin_id': pin_data[7],
+                        'username': pin_data[8],
+                        'board_name': pin_data[9],
+                        'pinned_at': pin_data[10]
+                    } if pin_data[7] else None,
+                    'like_count': pin_data[11],
+                    'is_liked': pin_data[12],
+                    'is_owner': pin_data[13],
+                    'comment_count': len(comments),
+                    'comments': comments
+                }
+                
+                return render_template('view_pin.html', pin=pin, boards=boards)
+    except Exception as e:
+        print(f"Error in view_pin route: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        flash('An error occurred while loading the pin.', 'danger')
+        return redirect(url_for('home'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
@@ -428,9 +547,11 @@ def create_pinboard():
             
             conn.commit()
             flash('Pinboard created successfully!', 'success')
-            return redirect(url_for('pinboard', board_id=board_id))
+            return redirect(url_for('manage_pinboards'))
             
         except Exception as e:
+            conn.rollback()
+            print(f"Error creating pinboard: {str(e)}")
             flash('An error occurred while creating the pinboard.', 'error')
             return redirect(url_for('create_pinboard'))
             
@@ -441,7 +562,7 @@ def create_pinboard():
     return render_template('create_pinboard.html')
 
 @app.route('/pinboard/<board_id>')
-def pinboard(board_id):
+def view_pinboard(board_id):
     if 'user_id' not in session:
         flash('Please login to view pinboards.', 'error')
         return redirect(url_for('login'))
@@ -449,36 +570,59 @@ def pinboard(board_id):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Get pinboard details
-    cur.execute('''
-        SELECT p.name, p.allow_comments_from_friends_only, p.created_at,
-               u.username, u.full_name
-        FROM Pinboards p
-        JOIN Users u ON p.user_id = u.user_id
-        WHERE p.board_id = %s
-    ''', (board_id,))
-    board = cur.fetchone()
-    
-    if not board:
-        flash('Pinboard not found.', 'error')
-        return redirect(url_for('pinboards'))
-    
-    # Get pins in this board
-    cur.execute('''
-        SELECT pi.picture_id, pi.original_url, pi.source_page_url, 
-               pi.tags, pi.first_pinned_at, u.username, u.full_name
-        FROM Pins p
-        JOIN Pictures pi ON p.picture_id = pi.picture_id
-        JOIN Users u ON pi.uploaded_by_user_id = u.user_id
-        WHERE p.board_id = %s
-        ORDER BY p.pinned_at DESC
-    ''', (board_id,))
-    pins = cur.fetchall()
-    
-    cur.close()
-    conn.close()
-    
-    return render_template('view_pinboard.html', board=board, pins=pins, board_id=board_id)
+    try:
+        # Get pinboard details
+        cur.execute('''
+            SELECT p.name, p.allow_comments_from_friends_only, p.created_at,
+                   u.username, u.full_name
+            FROM Pinboards p
+            JOIN Users u ON p.user_id = u.user_id
+            WHERE p.board_id = %s
+        ''', (board_id,))
+        board = cur.fetchone()
+        
+        if not board:
+            flash('Pinboard not found.', 'error')
+            return redirect(url_for('pinboards'))
+        
+        # Get all pins in this board, including repins
+        cur.execute('''
+            SELECT pi.pin_id, p.picture_id, p.original_url, p.source_page_url, 
+                   p.tags, pi.pinned_at, u.username, u.full_name,
+                   pi.parent_pin_id, p.storage_path
+            FROM Pins pi
+            JOIN Pictures p ON pi.picture_id = p.picture_id
+            JOIN Users u ON pi.user_id = u.user_id
+            WHERE pi.board_id = %s
+            ORDER BY pi.pinned_at DESC
+        ''', (board_id,))
+        
+        pins = [{
+            'pin_id': row[0],
+            'picture_id': row[1],
+            'original_url': row[2],
+            'source_page_url': row[3],
+            'tags': row[4],
+            'pinned_at': row[5],
+            'username': row[6],
+            'full_name': row[7],
+            'parent_pin_id': row[8],
+            'storage_path': row[9]
+        } for row in cur.fetchall()]
+        
+        # Debug: Print pin details
+        for pin in pins:
+            print(f"Pin {pin['pin_id']}:")
+            print(f"  Source URL: {pin['source_page_url']}")
+            print(f"  Storage Path: {pin['storage_path']}")
+        
+        return render_template('view_pinboard.html', 
+                             board={'board_id': board_id, 'name': board[0]},
+                             pins=pins)
+        
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route('/upload_pin', methods=['GET', 'POST'])
 @app.route('/upload_pin/<board_id>', methods=['GET', 'POST'])
@@ -668,23 +812,49 @@ def manage_pinboards():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Get user's pinboards
-    cur.execute('''
-        SELECT board_id, name, created_at
-        FROM Pinboards
-        WHERE user_id = %s
-        ORDER BY created_at DESC
-    ''', (session['user_id'],))
-    boards = cur.fetchall()
-    
-    cur.close()
-    conn.close()
-    
-    return render_template('manage_pinboards.html', boards=boards)
+    try:
+        # Get user's pinboards
+        cur.execute('''
+            SELECT board_id, name, created_at
+            FROM Pinboards
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        ''', (session['user_id'],))
+        
+        # Convert tuples to dictionaries with named fields
+        boards = [{
+            'board_id': row[0],
+            'name': row[1],
+            'created_at': row[2]
+        } for row in cur.fetchall()]
+        
+        return render_template('manage_pinboards.html', boards=boards)
+        
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename, mimetype='image/jpeg')
+    try:
+        # Get the file extension to determine MIME type
+        file_ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif'
+        }
+        mimetype = mime_types.get(file_ext, 'image/jpeg')
+        
+        return send_from_directory(
+            app.config['UPLOAD_FOLDER'],
+            filename,
+            mimetype=mimetype
+        )
+    except Exception as e:
+        print(f"Error serving file {filename}: {str(e)}")
+        return "File not found", 404
 
 @app.route('/manage_streams')
 def manage_streams():
@@ -842,9 +1012,9 @@ def repin(pin_id, board_id):
     cur = conn.cursor()
     
     try:
-        # Get the original pin's picture_id and tags
+        # Get the original pin's picture details
         cur.execute('''
-            SELECT p.picture_id, p.tags
+            SELECT p.picture_id, p.original_url, p.source_page_url, p.storage_path, p.tags
             FROM Pins pi
             JOIN Pictures p ON pi.picture_id = p.picture_id
             WHERE pi.pin_id = %s
@@ -855,8 +1025,11 @@ def repin(pin_id, board_id):
             flash('Original pin not found.', 'error')
             return redirect(url_for('home'))
         
-        picture_id = result[0]
-        original_tags = result[1] or []
+        original_picture_id = result[0]
+        original_url = result[1]
+        source_page_url = result[2]  # Use the same source_page_url
+        storage_path = result[3]
+        original_tags = result[4] or []
         
         # Process tags from the form
         if request.method == 'POST':
@@ -868,19 +1041,20 @@ def repin(pin_id, board_id):
                 # Use original tags if no new tags provided
                 tags = original_tags
         
+        # Create new picture entry with the same image but new tags
+        new_picture_id = str(uuid.uuid4())
+        
+        cur.execute('''
+            INSERT INTO Pictures (picture_id, original_url, source_page_url, storage_path, tags)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (new_picture_id, original_url, source_page_url, storage_path, tags))
+        
         # Create new pin with parent_pin_id
         new_pin_id = str(uuid.uuid4())
         cur.execute('''
             INSERT INTO Pins (pin_id, picture_id, board_id, user_id, parent_pin_id)
             VALUES (%s, %s, %s, %s, %s)
-        ''', (new_pin_id, picture_id, board_id, session['user_id'], pin_id))
-        
-        # Update tags in the Pictures table
-        cur.execute('''
-            UPDATE Pictures
-            SET tags = %s
-            WHERE picture_id = %s
-        ''', (tags, picture_id))
+        ''', (new_pin_id, new_picture_id, board_id, session['user_id'], pin_id))
         
         conn.commit()
         flash('Pin repinned successfully!', 'success')
@@ -894,6 +1068,209 @@ def repin(pin_id, board_id):
     finally:
         cur.close()
         conn.close()
+
+@app.route('/like_pin/<picture_id>', methods=['POST'])
+def like_pin(picture_id):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Find the original pin (the one with no parent_pin_id)
+                cur.execute("""
+                    WITH RECURSIVE pin_chain AS (
+                        -- Start with the current pin
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        WHERE p.picture_id = %s
+                        
+                        UNION ALL
+                        
+                        -- Recursively find parent pins
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        JOIN pin_chain pc ON p.pin_id = pc.parent_pin_id
+                    )
+                    -- Get the original pin (the one with no parent_pin_id)
+                    SELECT picture_id
+                    FROM pin_chain
+                    WHERE parent_pin_id IS NULL
+                    LIMIT 1
+                """, (picture_id,))
+                
+                original_picture = cur.fetchone()
+                if not original_picture:
+                    flash('Could not find the original pin.', 'danger')
+                    return redirect(request.referrer or url_for('home'))
+                
+                original_picture_id = original_picture[0]
+                
+                # Check if user has already liked the original picture
+                cur.execute("""
+                    SELECT 1 FROM Likes 
+                    WHERE user_id = %s AND picture_id = %s
+                """, (session['user_id'], original_picture_id))
+                
+                if cur.fetchone():
+                    # Unlike the picture
+                    cur.execute("""
+                        DELETE FROM Likes 
+                        WHERE user_id = %s AND picture_id = %s
+                    """, (session['user_id'], original_picture_id))
+                else:
+                    # Like the picture
+                    cur.execute("""
+                        INSERT INTO Likes (user_id, picture_id, liked_at)
+                        VALUES (%s, %s, NOW())
+                    """, (session['user_id'], original_picture_id))
+                
+                conn.commit()
+                return redirect(request.referrer or url_for('home'))
+    except Exception as e:
+        print(f"Error in like_pin route: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        flash('An error occurred while processing your like.', 'danger')
+        return redirect(request.referrer or url_for('home'))
+
+@app.route('/add_comment/<pin_id>', methods=['POST'])
+@login_required
+def add_comment(pin_id):
+    try:
+        content = request.form.get('content')
+        if not content:
+            flash('Comment cannot be empty.', 'danger')
+            return redirect(request.referrer or url_for('home'))
+            
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                comment_id = str(uuid.uuid4())
+                cur.execute("""
+                    INSERT INTO Comments (comment_id, pin_id, user_id, content, commented_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                """, (comment_id, pin_id, session['user_id'], content))
+                
+                conn.commit()
+                flash('Comment added successfully!', 'success')
+                return redirect(request.referrer or url_for('home'))
+    except Exception as e:
+        print(f"Error adding comment: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        flash('An error occurred while adding your comment.', 'danger')
+        return redirect(request.referrer or url_for('home'))
+
+@app.route('/delete_pin/<pin_id>', methods=['POST'])
+@login_required
+def delete_pin(pin_id):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # First check if the user owns this pin
+                cur.execute("""
+                    SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                    FROM Pins p
+                    WHERE p.pin_id = %s AND p.user_id = %s
+                """, (pin_id, session['user_id']))
+                
+                pin = cur.fetchone()
+                if not pin:
+                    flash('You can only delete your own pins.', 'danger')
+                    return redirect(url_for('home'))
+                
+                # First, find all parent pins in the chain
+                cur.execute("""
+                    WITH RECURSIVE parent_chain AS (
+                        -- Start with the current pin
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        WHERE p.pin_id = %s
+                        
+                        UNION
+                        
+                        -- Find parent pins
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        JOIN parent_chain pc ON p.pin_id = pc.parent_pin_id
+                    )
+                    SELECT pin_id, picture_id FROM parent_chain
+                """, (pin_id,))
+                
+                parent_pins = cur.fetchall()
+                
+                # Then, find all child pins (repins)
+                cur.execute("""
+                    WITH RECURSIVE child_chain AS (
+                        -- Start with the current pin
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        WHERE p.pin_id = %s
+                        
+                        UNION
+                        
+                        -- Find child pins (repins)
+                        SELECT p.pin_id, p.picture_id, p.parent_pin_id
+                        FROM Pins p
+                        JOIN child_chain cc ON p.parent_pin_id = cc.pin_id
+                    )
+                    SELECT pin_id, picture_id FROM child_chain
+                """, (pin_id,))
+                
+                child_pins = cur.fetchall()
+                
+                # Combine all pins to delete
+                pins_to_delete = list(set(parent_pins + child_pins))
+                
+                if not pins_to_delete:
+                    flash('Pin not found.', 'danger')
+                    return redirect(url_for('home'))
+                
+                print(f"Found {len(pins_to_delete)} pins to delete")
+                
+                # Get all picture_ids and pin_ids
+                picture_ids = [row[1] for row in pins_to_delete]
+                pin_ids = [row[0] for row in pins_to_delete]
+                
+                # Delete all comments for these pins
+                if pin_ids:
+                    cur.execute("""
+                        DELETE FROM Comments 
+                        WHERE pin_id = ANY(%s::uuid[])
+                    """, (pin_ids,))
+                print("Deleted comments")
+                
+                # Delete all likes for these pictures
+                if picture_ids:
+                    cur.execute("""
+                        DELETE FROM Likes 
+                        WHERE picture_id = ANY(%s::uuid[])
+                    """, (picture_ids,))
+                print("Deleted likes")
+                
+                # Delete all pins in the chain
+                if pin_ids:
+                    cur.execute("""
+                        DELETE FROM Pins 
+                        WHERE pin_id = ANY(%s::uuid[])
+                    """, (pin_ids,))
+                print("Deleted pins")
+                
+                # Delete all pictures in the chain
+                if picture_ids:
+                    cur.execute("""
+                        DELETE FROM Pictures 
+                        WHERE picture_id = ANY(%s::uuid[])
+                    """, (picture_ids,))
+                print("Deleted pictures")
+                
+                conn.commit()
+                flash('Pin and all its repins have been deleted successfully.', 'success')
+                return redirect(url_for('home'))
+                
+    except Exception as e:
+        print(f"Error deleting pin: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        flash(f'An error occurred while deleting the pin: {str(e)}', 'danger')
+        return redirect(url_for('home'))
 
 if __name__ == '__main__':
     # Create upload folder if it doesn't exist

@@ -11,8 +11,11 @@
         {% for pin in pins %}
         <div class="col">
             <div class="card h-100">
-                <a href="{{ pin.source_page_url }}" target="_blank" class="text-decoration-none">
-                    <img src="{{ pin.source_page_url }}" class="card-img-top" alt="Pin" style="object-fit: cover; height: 200px;">
+                <a href="{{ url_for('view_pin', pin_id=pin.pin_id) }}" class="text-decoration-none">
+                    <img src="{{ url_for('uploaded_file', filename=pin.storage_path.split('/')[-1]) }}" 
+                         class="card-img-top" 
+                         alt="Pin" 
+                         style="object-fit: cover; height: 200px;">
                 </a>
                 <div class="card-body">
                     {% if pin.tags %}
@@ -29,27 +32,29 @@
                             {{ pin.pinned_at.strftime('%B %d, %Y') }}
                         </small>
                     </p>
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="pinDropdown{{ pin.pin_id }}" data-bs-toggle="dropdown" aria-expanded="false">
-                            Pin to Board
-                        </button>
-                        <ul class="dropdown-menu" aria-labelledby="pinDropdown{{ pin.pin_id }}">
-                            {% if boards %}
-                                {% for board in boards %}
-                                    <li>
-                                        <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#tagModal{{ pin.pin_id }}_{{ board.board_id }}">
-                                            {{ board.name }}
-                                        </a>
-                                    </li>
-                                {% endfor %}
-                            {% endif %}
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item" href="{{ url_for('create_pinboard') }}">
-                                    Create New Board
-                                </a>
-                            </li>
-                        </ul>
+                    <div class="d-flex justify-content-end">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="pinDropdown{{ pin.pin_id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                Pin to Board
+                            </button>
+                            <ul class="dropdown-menu" aria-labelledby="pinDropdown{{ pin.pin_id }}">
+                                {% if boards %}
+                                    {% for board in boards %}
+                                        <li>
+                                            <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#tagModal{{ pin.pin_id }}_{{ board.board_id }}">
+                                                {{ board.name }}
+                                            </a>
+                                        </li>
+                                    {% endfor %}
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('create_pinboard') }}">
+                                        Create New Board
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -99,7 +104,7 @@
     {% else %}
     <div class="text-center py-5">
         <h3>No pins to show yet</h3>
-        <p class="text-muted">Follow some friends to see their pins here!</p>
+        <p class="text-muted">Be the first to add a pin!</p>
     </div>
     {% endif %}
 </div>

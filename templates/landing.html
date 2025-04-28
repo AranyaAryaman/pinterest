@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to Pinterest{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row align-items-center min-vh-100">
+        <div class="col-md-6">
+            <h1 class="display-4 fw-bold mb-4">Discover and save creative ideas</h1>
+            <p class="lead mb-4">Pinterest is a visual discovery engine for finding ideas like recipes, home and style inspiration, and more.</p>
+            <div class="d-grid gap-2 d-md-flex">
+                <a href="{{ url_for('signup') }}" class="btn btn-primary btn-lg px-4 me-md-2">Sign up</a>
+                <a href="{{ url_for('login') }}" class="btn btn-outline-secondary btn-lg px-4">Log in</a>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="row g-4">
+                <div class="col-6">
+                    <div class="card h-100">
+                        <img src="https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=500&h=300&fit=crop" 
+                             class="card-img-top" 
+                             alt="Food Inspiration"
+                             style="height: 200px; object-fit: cover;">
+                        <div class="card-body">
+                            <h5 class="card-title">Food & Recipes</h5>
+                            <p class="card-text">Discover delicious recipes and cooking inspiration.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card h-100">
+                        <img src="https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?w=500&h=300&fit=crop" 
+                             class="card-img-top" 
+                             alt="Fashion Inspiration"
+                             style="height: 200px; object-fit: cover;">
+                        <div class="card-body">
+                            <h5 class="card-title">Fashion & Style</h5>
+                            <p class="card-text">Find your next outfit inspiration.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card h-100">
+                        <img src="https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=500&h=300&fit=crop" 
+                             class="card-img-top" 
+                             alt="Home Decor"
+                             style="height: 200px; object-fit: cover;">
+                        <div class="card-body">
+                            <h5 class="card-title">Home Decor</h5>
+                            <p class="card-text">Get inspired for your next home project.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card h-100">
+                        <img src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&h=300&fit=crop" 
+                             class="card-img-top" 
+                             alt="Travel"
+                             style="height: 200px; object-fit: cover;">
+                        <div class="card-body">
+                            <h5 class="card-title">Travel</h5>
+                            <p class="card-text">Plan your next adventure.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row my-5 py-5">
+        <div class="col-12 text-center mb-5">
+            <h2 class="display-5">How it works</h2>
+        </div>
+        <div class="col-md-4 text-center">
+            <div class="mb-4">
+                <i class="bi bi-search display-4 text-primary"></i>
+            </div>
+            <h3>Discover</h3>
+            <p>Find ideas you love from people who share your interests.</p>
+        </div>
+        <div class="col-md-4 text-center">
+            <div class="mb-4">
+                <i class="bi bi-pin display-4 text-primary"></i>
+            </div>
+            <h3>Save</h3>
+            <p>Save ideas to your boards to keep them organized.</p>
+        </div>
+        <div class="col-md-4 text-center">
+            <div class="mb-4">
+                <i class="bi bi-people display-4 text-primary"></i>
+            </div>
+            <h3>Share</h3>
+            <p>Follow friends and share your favorite ideas.</p>
+        </div>
+    </div>
+</div>
+{% endblock %} 
