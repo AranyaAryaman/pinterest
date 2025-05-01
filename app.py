@@ -56,7 +56,7 @@ def home():
                 """, (session['user_id'],))
                 boards = [{'board_id': row[0], 'name': row[1]} for row in cur.fetchall()]
                 
-                # Get friends' pins
+                # Get all pins (not just friends')
                 cur.execute("""
                     SELECT 
                         p.pin_id,
@@ -65,13 +65,23 @@ def home():
                         pic.tags,
                         u.username,
                         pb.name as board_name,
-                        pic.storage_path
+                        pic.storage_path,
+                        p.user_id,
+                        CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM Friendships f 
+                                WHERE (f.requester_id = %s AND f.addressee_id = u.user_id)
+                                OR (f.requester_id = u.user_id AND f.addressee_id = %s)
+                                AND f.status = 'accepted'
+                            ) THEN true
+                            ELSE false
+                        END as is_friend
                     FROM Pins p
                     JOIN Users u ON p.user_id = u.user_id
                     JOIN Pinboards pb ON p.board_id = pb.board_id
                     JOIN Pictures pic ON p.picture_id = pic.picture_id
                     ORDER BY p.pinned_at DESC
-                """, (session['user_id'], session['user_id'], session['user_id']))
+                """, (session['user_id'], session['user_id']))
                 
                 pins = []
                 for row in cur.fetchall():
@@ -82,15 +92,26 @@ def home():
                         'tags': row[3] if row[3] else [],
                         'username': row[4],
                         'board_name': row[5],
-                        'storage_path': row[6]
+                        'storage_path': row[6],
+                        'user_id': row[7],
+                        'is_friend': row[8]
                     }
                     pins.append(pin)
                 
-                return render_template('home.html', boards=boards, pins=pins)
+                # Get user's streams for the search filter
+                cur.execute("""
+                    SELECT s.stream_id, s.name
+                    FROM FollowStreams s
+                    WHERE s.user_id = %s
+                    ORDER BY s.name
+                """, (session['user_id'],))
+                streams = [{'stream_id': row[0], 'name': row[1]} for row in cur.fetchall()]
+                
+                return render_template('home.html', boards=boards, pins=pins, streams=streams)
     except Exception as e:
         print(f"Error in home route: {e}")
         flash('An error occurred while loading the home page.', 'danger')
-        return render_template('home.html', boards=[], pins=[])
+        return render_template('home.html', boards=[], pins=[], streams=[])
 
 @app.route('/pin/<pin_id>')
 @login_required
@@ -207,7 +228,7 @@ def signup():
         
         # Hash the password
         password_hash = generate_password_hash(password)
-        
+
         try:
             conn = get_db_connection()
             cur = conn.cursor()
@@ -227,10 +248,10 @@ def signup():
             conn.commit()
             cur.close()
             conn.close()
-            
+
             flash('Account created successfully! Please login.', 'success')
             return redirect(url_for('login'))
-            
+        
         except Exception as e:
             flash('An error occurred. Please try again.', 'error')
             return redirect(url_for('signup'))
@@ -242,14 +263,14 @@ def login():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        
+
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute('SELECT user_id, password_hash FROM Users WHERE email = %s', (email,))
         user = cur.fetchone()
         cur.close()
         conn.close()
-        
+
         if user and check_password_hash(user[1], password):
             session['user_id'] = user[0]
             flash('Logged in successfully!', 'success')
@@ -257,7 +278,7 @@ def login():
         else:
             flash('Invalid email or password!', 'error')
             return redirect(url_for('login'))
-            
+
     return render_template('login.html')
 
 @app.route('/logout')
@@ -461,7 +482,7 @@ def add_friend(user_id):
 def respond_friend_request(user_id, action):
     if 'user_id' not in session:
         return redirect(url_for('login'))
-    
+
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -516,49 +537,41 @@ def pinboards():
     return render_template('pinboards.html', boards=boards)
 
 @app.route('/create_pinboard', methods=['GET', 'POST'])
+@login_required
 def create_pinboard():
-    if 'user_id' not in session:
-        flash('Please login to create a pinboard.', 'error')
-        return redirect(url_for('login'))
-    
     if request.method == 'POST':
         name = request.form['name']
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
+        allow_comments_from_friends_only = 'allow_comments_from_friends_only' in request.form
         
         try:
-            # Check if pinboard name already exists for this user
-            cur.execute('''
-                SELECT board_id FROM Pinboards 
-                WHERE user_id = %s AND name = %s
-            ''', (session['user_id'], name))
-            
-            if cur.fetchone():
-                flash('You already have a pinboard with this name.', 'error')
-                return redirect(url_for('create_pinboard'))
-            
-            # Create new pinboard
-            board_id = str(uuid.uuid4())
-            cur.execute('''
-                INSERT INTO Pinboards (board_id, user_id, name)
-                VALUES (%s, %s, %s)
-            ''', (board_id, session['user_id'], name))
-            
-            conn.commit()
-            flash('Pinboard created successfully!', 'success')
-            return redirect(url_for('manage_pinboards'))
-            
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    # Check if board name already exists for this user
+                    cur.execute("""
+                        SELECT board_id FROM Pinboards 
+                        WHERE user_id = %s AND name = %s
+                    """, (session['user_id'], name))
+                    
+                    if cur.fetchone():
+                        flash('You already have a pinboard with this name.', 'error')
+                        return redirect(url_for('create_pinboard'))
+                    
+                    # Create new pinboard
+                    board_id = str(uuid.uuid4())
+                    cur.execute("""
+                        INSERT INTO Pinboards (board_id, user_id, name, allow_comments_from_friends_only)
+                        VALUES (%s, %s, %s, %s)
+                    """, (board_id, session['user_id'], name, allow_comments_from_friends_only))
+                    
+                    conn.commit()
+                    flash('Pinboard created successfully!', 'success')
+                    return redirect(url_for('manage_pinboards'))
+                    
         except Exception as e:
-            conn.rollback()
             print(f"Error creating pinboard: {str(e)}")
             flash('An error occurred while creating the pinboard.', 'error')
             return redirect(url_for('create_pinboard'))
             
-        finally:
-            cur.close()
-            conn.close()
-    
     return render_template('create_pinboard.html')
 
 @app.route('/pinboard/<board_id>')
@@ -1021,71 +1034,68 @@ def view_stream(stream_id):
         conn.close()
 
 @app.route('/repin/<pin_id>/<board_id>', methods=['GET', 'POST'])
+@login_required
 def repin(pin_id, board_id):
-    if 'user_id' not in session:
-        flash('Please login to repin.', 'error')
-        return redirect(url_for('login'))
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
     try:
-        # Get the original pin's picture details
-        cur.execute('''
-            SELECT p.picture_id, p.original_url, p.source_page_url, p.storage_path, p.tags
-            FROM Pins pi
-            JOIN Pictures p ON pi.picture_id = p.picture_id
-            WHERE pi.pin_id = %s
-        ''', (pin_id,))
-        result = cur.fetchone()
-        
-        if not result:
-            flash('Original pin not found.', 'error')
-            return redirect(url_for('home'))
-        
-        original_picture_id = result[0]
-        original_url = result[1]
-        source_page_url = result[2]  # Use the same source_page_url
-        storage_path = result[3]
-        original_tags = result[4] or []
-        
-        # Process tags from the form
-        if request.method == 'POST':
-            new_tags_str = request.form.get('tags', '')
-            if new_tags_str:
-                # Use new tags if provided
-                tags = [tag.strip() for tag in new_tags_str.split(',') if tag.strip()]
-            else:
-                # Use original tags if no new tags provided
-                tags = original_tags
-        
-        # Create new picture entry with the same image but new tags
-        new_picture_id = str(uuid.uuid4())
-        
-        cur.execute('''
-            INSERT INTO Pictures (picture_id, original_url, source_page_url, storage_path, tags)
-            VALUES (%s, %s, %s, %s, %s)
-        ''', (new_picture_id, original_url, source_page_url, storage_path, tags))
-        
-        # Create new pin with parent_pin_id
-        new_pin_id = str(uuid.uuid4())
-        cur.execute('''
-            INSERT INTO Pins (pin_id, picture_id, board_id, user_id, parent_pin_id)
-            VALUES (%s, %s, %s, %s, %s)
-        ''', (new_pin_id, new_picture_id, board_id, session['user_id'], pin_id))
-        
-        conn.commit()
-        flash('Pin repinned successfully!', 'success')
-        return redirect(url_for('home'))
-        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get the original pin's picture details
+                cur.execute("""
+                    SELECT p.picture_id, p.original_url, p.source_page_url, p.storage_path, p.tags
+                    FROM Pins pi
+                    JOIN Pictures p ON pi.picture_id = p.picture_id
+                    WHERE pi.pin_id = %s
+                """, (pin_id,))
+                result = cur.fetchone()
+                
+                if not result:
+                    flash('Original pin not found.', 'danger')
+                    return redirect(url_for('home'))
+                
+                original_picture_id = result[0]
+                original_url = result[1]
+                source_page_url = result[2]
+                storage_path = result[3]
+                original_tags = result[4] or []
+                
+                # Process tags from the form
+                if request.method == 'POST':
+                    new_tags_str = request.form.get('tags', '')
+                    if new_tags_str:
+                        # Use new tags if provided
+                        tags = [tag.strip() for tag in new_tags_str.split(',') if tag.strip()]
+                    else:
+                        # Use original tags if no new tags provided
+                        tags = original_tags
+                    
+                    # Create new picture entry with the same image but new tags
+                    new_picture_id = str(uuid.uuid4())
+                    
+                    cur.execute("""
+                        INSERT INTO Pictures (picture_id, original_url, source_page_url, storage_path, tags)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (new_picture_id, original_url, source_page_url, storage_path, tags))
+                    
+                    # Create new pin with parent_pin_id
+                    new_pin_id = str(uuid.uuid4())
+                    cur.execute("""
+                        INSERT INTO Pins (pin_id, picture_id, board_id, user_id, parent_pin_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (new_pin_id, new_picture_id, board_id, session['user_id'], pin_id))
+                    
+                    conn.commit()
+                    flash('Pin repinned successfully!', 'success')
+                    return redirect(url_for('home'))
+                
+                # For GET request, show the repin form
+                return render_template('repin.html', 
+                                    pin={'pin_id': pin_id, 'storage_path': storage_path, 'tags': original_tags},
+                                    board_id=board_id)
+                
     except Exception as e:
-        conn.rollback()
-        flash('An error occurred while repinning.', 'error')
+        print(f"Error in repin route: {str(e)}")
+        flash('An error occurred while repinning.', 'danger')
         return redirect(url_for('home'))
-        
-    finally:
-        cur.close()
-        conn.close()
 
 @app.route('/like_pin/<picture_id>', methods=['POST'])
 def like_pin(picture_id):
@@ -1160,6 +1170,36 @@ def add_comment(pin_id):
             
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # First check if the user is allowed to comment on this pin
+                cur.execute("""
+                    SELECT pb.allow_comments_from_friends_only, pb.user_id as board_owner_id,
+                           CASE 
+                               WHEN EXISTS (
+                                   SELECT 1 FROM Friendships f 
+                                   WHERE (f.requester_id = %s AND f.addressee_id = pb.user_id)
+                                   OR (f.requester_id = pb.user_id AND f.addressee_id = %s)
+                                   AND f.status = 'accepted'
+                               ) THEN true
+                               ELSE false
+                           END as is_friend
+                    FROM Pins p
+                    JOIN Pinboards pb ON p.board_id = pb.board_id
+                    WHERE p.pin_id = %s
+                """, (session['user_id'], session['user_id'], pin_id))
+                
+                result = cur.fetchone()
+                if not result:
+                    flash('Pin not found.', 'danger')
+                    return redirect(request.referrer or url_for('home'))
+                
+                allow_comments_from_friends_only, board_owner_id, is_friend = result
+                
+                # Check if user is allowed to comment
+                if allow_comments_from_friends_only and not is_friend and board_owner_id != session['user_id']:
+                    flash('This board only allows comments from friends.', 'danger')
+                    return redirect(request.referrer or url_for('home'))
+                
+                # If allowed, add the comment
                 comment_id = str(uuid.uuid4())
                 cur.execute("""
                     INSERT INTO Comments (comment_id, pin_id, user_id, content, commented_at)
@@ -1288,6 +1328,121 @@ def delete_pin(pin_id):
         import traceback
         print(traceback.format_exc())
         flash(f'An error occurred while deleting the pin: {str(e)}', 'danger')
+        return redirect(url_for('home'))
+
+@app.route('/search')
+@login_required
+def search():
+    try:
+        search_tag = request.args.get('tag', '')
+        stream_id = request.args.get('stream', '')
+        board_id = request.args.get('board', '')
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Base query for searching pins
+                query = """
+                    SELECT 
+                        p.pin_id,
+                        p.picture_id,
+                        p.pinned_at,
+                        pic.tags,
+                        u.username,
+                        pb.name as board_name,
+                        pic.storage_path,
+                        p.user_id,
+                        CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM Friendships f 
+                                WHERE (f.requester_id = %s AND f.addressee_id = u.user_id)
+                                OR (f.requester_id = u.user_id AND f.addressee_id = %s)
+                                AND f.status = 'accepted'
+                            ) THEN true
+                            ELSE false
+                        END as is_friend
+                    FROM Pins p
+                    JOIN Users u ON p.user_id = u.user_id
+                    JOIN Pinboards pb ON p.board_id = pb.board_id
+                    JOIN Pictures pic ON p.picture_id = pic.picture_id
+                """
+                
+                params = [session['user_id'], session['user_id']]
+                
+                # Add tag search condition
+                if search_tag:
+                    query += " WHERE %s = ANY(pic.tags)"
+                    params.append(search_tag)
+                
+                # Add stream filter if specified
+                if stream_id:
+                    if search_tag:
+                        query += " AND"
+                    else:
+                        query += " WHERE"
+                    query += """
+                        EXISTS (
+                            SELECT 1 FROM FollowStreamBoards fsb
+                            WHERE fsb.board_id = p.board_id
+                            AND fsb.stream_id = %s
+                        )
+                    """
+                    params.append(stream_id)
+                
+                # Add board filter if specified
+                if board_id:
+                    if search_tag or stream_id:
+                        query += " AND"
+                    else:
+                        query += " WHERE"
+                    query += " p.board_id = %s"
+                    params.append(board_id)
+                
+                query += " ORDER BY p.pinned_at DESC"
+                
+                cur.execute(query, params)
+                pins = []
+                for row in cur.fetchall():
+                    pin = {
+                        'pin_id': row[0],
+                        'picture_id': row[1],
+                        'pinned_at': row[2],
+                        'tags': row[3] if row[3] else [],
+                        'username': row[4],
+                        'board_name': row[5],
+                        'storage_path': row[6],
+                        'user_id': row[7],
+                        'is_friend': row[8]
+                    }
+                    pins.append(pin)
+                
+                # Get user's boards for the filter dropdown
+                cur.execute("""
+                    SELECT board_id, name FROM Pinboards 
+                    WHERE user_id = %s
+                    ORDER BY name
+                """, (session['user_id'],))
+                boards = [{'board_id': row[0], 'name': row[1]} for row in cur.fetchall()]
+                
+                # Get user's streams for the filter dropdown
+                cur.execute("""
+                    SELECT s.stream_id, s.name
+                    FROM FollowStreams s
+                    WHERE s.user_id = %s
+                    ORDER BY s.name
+                """, (session['user_id'],))
+                streams = [{'stream_id': row[0], 'name': row[1]} for row in cur.fetchall()]
+                
+                return render_template('home.html', 
+                                    boards=boards, 
+                                    pins=pins, 
+                                    streams=streams,
+                                    search_tag=search_tag,
+                                    selected_stream=stream_id,
+                                    selected_board=board_id)
+                
+    except Exception as e:
+        print(f"Error in search route: {e}")
+        flash('An error occurred while searching.', 'danger')
         return redirect(url_for('home'))
 
 if __name__ == '__main__':

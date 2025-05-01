@@ -3,24 +3,34 @@
 {% block title %}Create Pinboard - Pinterest{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-6 mx-auto">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="card-title text-center mb-4">Create New Pinboard</h2>
-                
-                <form method="POST" action="{{ url_for('create_pinboard') }}">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Board Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                        <div class="form-text">Choose a unique name for your pinboard.</div>
-                    </div>
-                    
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary">Create Board</button>
-                        <a href="{{ url_for('pinboards') }}" class="btn btn-outline-secondary">Cancel</a>
-                    </div>
-                </form>
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Create New Pinboard</h4>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('create_pinboard') }}" method="post">
+                        <div class="form-group">
+                            <label for="name">Pinboard Name</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                        </div>
+                        <div class="form-group mt-3">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="allow_comments_from_friends_only" name="allow_comments_from_friends_only">
+                                <label class="custom-control-label" for="allow_comments_from_friends_only">
+                                    Allow comments from friends only
+                                </label>
+                            </div>
+                            <small class="form-text text-muted">When enabled, only your friends can comment on pins in this board.</small>
+                        </div>
+                        <div class="form-group mt-3">
+                            <button type="submit" class="btn btn-primary">Create Pinboard</button>
+                            <a href="{{ url_for('manage_pinboards') }}" class="btn btn-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
