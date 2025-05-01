@@ -2,7 +2,7 @@
 
 A full-featured Pinterest clone built with Flask and PostgreSQL, implementing core Pinterest functionalities like pinning, repinning, boards, streams, and social features.
 
-## Table of Contents
+## Table of Contentsgitggggggg
 - [Features](#features)
 - [Technical Stack](#technical-stack)
 - [Database Schema](#database-schema)

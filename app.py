@@ -70,8 +70,8 @@ def home():
                         CASE 
                             WHEN EXISTS (
                                 SELECT 1 FROM Friendships f 
-                                WHERE (f.requester_id = %s AND f.addressee_id = u.user_id)
-                                OR (f.requester_id = u.user_id AND f.addressee_id = %s)
+                                WHERE ((f.requester_id = %s AND f.addressee_id = u.user_id)
+                                OR (f.requester_id = u.user_id AND f.addressee_id = %s))
                                 AND f.status = 'accepted'
                             ) THEN true
                             ELSE false
@@ -1176,8 +1176,8 @@ def add_comment(pin_id):
                            CASE 
                                WHEN EXISTS (
                                    SELECT 1 FROM Friendships f 
-                                   WHERE (f.requester_id = %s AND f.addressee_id = pb.user_id)
-                                   OR (f.requester_id = pb.user_id AND f.addressee_id = %s)
+                                   WHERE ((f.requester_id = %s AND f.addressee_id = pb.user_id)
+                                   OR (f.requester_id = pb.user_id AND f.addressee_id = %s))
                                    AND f.status = 'accepted'
                                ) THEN true
                                ELSE false
